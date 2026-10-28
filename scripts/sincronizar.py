@@ -1,82 +1,150 @@
-"""Sincronización mínima para visor PÚBLICO: SOLO ID inmueble y coordenadas.
-No escribir nunca la base completa en el repositorio ni mostrar sus campos privados.
+"""Lee Inventario desde un enlace compartido de OneDrive mediante Microsoft Graph.
+Geocodifica direcciones de Medellín con OpenCage (clave de cuenta propia),
+reutiliza coordenadas previamente publicadas, y publica SOLO códigos opacos y puntos.
+NO publica el Excel, direcciones, contratos, cédulas, nombres ni información financiera.
 """
-import json, os, math, urllib.parse, urllib.request, urllib.error
+import base64
+import hashlib
+import json
+import math
+import os
+import re
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from io import BytesIO
 from pathlib import Path
 from openpyxl import load_workbook
 
+OUT = Path('data/inmuebles.json')
+BOUNDS = (6.05, 6.42, -75.78, -75.38)  # zona aproximada Medellín; revisar puntos atípicos
 
-def fetch(req, label, binary=False):
+def request(url, *, headers=None, form=None, binary=False):
+    payload=urllib.parse.urlencode(form).encode() if form else None
+    req=urllib.request.Request(url,data=payload,headers=headers or {},method='POST' if form else 'GET')
     try:
-        with urllib.request.urlopen(req, timeout=120) as res:
-            return res.read() if binary else json.load(res)
+        with urllib.request.urlopen(req,timeout=90) as response:
+            return response.read() if binary else json.load(response)
     except urllib.error.HTTPError as exc:
-        message = exc.read().decode('utf-8', errors='replace')
+        body=exc.read().decode('utf-8',errors='replace')
         try:
-            data = json.loads(message)
-            error = data.get('error', {})
-            message = error.get('message', message) if isinstance(error, dict) else data.get('error_description', message)
-        except ValueError:
-            pass
-        raise SystemExit(f'{label}: HTTP {exc.code}. {str(message)[:300]}') from None
+            detail=json.loads(body)
+            err=detail.get('error',{})
+            message=err.get('message',str(err)) if isinstance(err,dict) else detail.get('error_description',str(err))
+        except ValueError:message='Solicitud rechazada'
+        raise RuntimeError(f'HTTP {exc.code}: {message[:180]}') from None
 
+def token():
+    url=os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
+    url+=('&' if '?' in url else '?')+'audience='+urllib.parse.quote('api://AzureADTokenExchange',safe='')
+    assertion=request(url,headers={'Authorization':'Bearer '+os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})['value']
+    tenant=os.environ['AZURE_TENANT_ID'].strip()
+    result=request(f'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token',form={
+      'client_id':os.environ['AZURE_CLIENT_ID'].strip(),
+      'scope':'https://graph.microsoft.com/.default',
+      'grant_type':'client_credentials',
+      'client_assertion_type':'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
+      'client_assertion':assertion})
+    return result['access_token']
+
+def read_excel(access_token):
+    # No publicar el enlace compartido: se configura como secreto en GitHub.
+    link=os.environ['ONEDRIVE_NEW_SHARE_URL'].strip()
+    share='u!'+base64.urlsafe_b64encode(link.encode('utf-8')).decode('ascii').rstrip('=')
+    headers={'Authorization':'Bearer '+access_token}
+    url=f'https://graph.microsoft.com/v1.0/shares/{share}/driveItem'
+    info=request(url,headers=headers)
+    if info.get('name','').lower().endswith('.xlsx') is False:
+        raise RuntimeError('El enlace no corresponde a un Excel XLSX')
+    reference=info.get('parentReference') or {}
+    drive,item=reference.get('driveId'),info.get('id')
+    if not drive or not item:raise RuntimeError('No se encontraron driveId/itemId del archivo nuevo')
+    target=f'https://graph.microsoft.com/v1.0/drives/{urllib.parse.quote(drive,safe="")}/items/{urllib.parse.quote(item,safe="")}/content'
+    return request(target,headers=headers,binary=True)
+
+def norm(v):
+    return re.sub(r'\s+',' ',str(v or '').strip())
+
+def address(v):
+    s=norm(v)
+    # quitar números de local entre paréntesis, sin perder la nomenclatura de la vía.
+    s=re.sub(r'\s*\(\s*(?:local\s*)?\d+[A-Za-z]?\s*\)','',s,flags=re.I)
+    s=re.sub(r'\b(?:local|loc|oficina|apto|apartamento)\s*\d+[A-Za-z]?\b','',s,flags=re.I)
+    return re.sub(r'\s+',' ',s).strip(' ,;-')
+
+def code(row,columns):
+    # Pseudónimo opaco para no publicar números de contrato.
+    parts=[norm(row[columns[k]]) for k in ('CONTRATO_RADICADO','Activo fijo','LOCAL')]
+    source='|'.join(parts)
+    if not source.strip('|'):return None
+    salt=os.environ['MAP_ID_SALT'].strip()
+    return 'INM-'+hashlib.sha256((salt+'|'+source).encode()).hexdigest()[:16].upper()
+
+def geocode(addr,key):
+    query=addr+', Medellín, Antioquia, Colombia'
+    params=urllib.parse.urlencode({'q':query,'key':key,'countrycode':'co','limit':3,'no_annotations':1,'language':'es'})
+    resp=request('https://api.opencagedata.com/geocode/v1/json?'+params)
+    for result in resp.get('results',[]):
+        components=result.get('components') or {}
+        geo=result.get('geometry') or {}
+        lat,lon=geo.get('lat'),geo.get('lng')
+        if not isinstance(lat,(int,float)) or not isinstance(lon,(int,float)):continue
+        if BOUNDS[0]<=lat<=BOUNDS[1] and BOUNDS[2]<=lon<=BOUNDS[3]:
+            category=components.get('_type','')
+            if category in ('city','state','county','country','administrative','suburb'):
+                continue  # No inventar un punto específico usando el centro de una zona.
+            return round(lat,7),round(lon,7)
+    return None
 
 def run():
-    names = ('AZURE_CLIENT_ID','AZURE_TENANT_ID','ONEDRIVE_DRIVE_ID','ONEDRIVE_FILE_ID')
-    absent = [n for n in names if not os.getenv(n, '').strip()]
-    if absent: raise SystemExit('Faltan variables: ' + ', '.join(absent))
-    endpoint = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
-    endpoint += ('&' if '?' in endpoint else '?') + 'audience=' + urllib.parse.quote('api://AzureADTokenExchange',safe='')
-    assertion = fetch(urllib.request.Request(endpoint,headers={'Authorization': 'Bearer '+os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}),'GitHub OIDC')['value']
-    tenant = os.environ['AZURE_TENANT_ID'].strip()
-    token_url = f'https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token'
-    params = {'client_id':os.environ['AZURE_CLIENT_ID'].strip(),'scope':'https://graph.microsoft.com/.default','grant_type':'client_credentials','client_assertion_type':'urn:ietf:params:oauth:client-assertion-type:jwt-bearer','client_assertion':assertion}
-    req = urllib.request.Request(token_url,urllib.parse.urlencode(params).encode(),headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST')
-    access_token=fetch(req,'Microsoft Entra')['access_token']
-    drive = urllib.parse.quote(os.environ['ONEDRIVE_DRIVE_ID'].strip(),safe='')
-    item = urllib.parse.quote(os.environ['ONEDRIVE_FILE_ID'].strip(),safe='')
-    req = urllib.request.Request(f'https://graph.microsoft.com/v1.0/drives/{drive}/items/{item}/content',headers={'Authorization':'Bearer '+access_token})
-    raw=fetch(req,'Microsoft Graph / Excel',binary=True)
-    workbook=load_workbook(BytesIO(raw),read_only=True,data_only=True)
-    if 'BASE_HUB' not in workbook.sheetnames: raise SystemExit('No se encontró BASE_HUB')
-    sheet=workbook['BASE_HUB']
-    rows=sheet.iter_rows(values_only=True)
-    headers=[str(v or '').strip().upper() for v in next(rows)]
-    cols={h:i for i,h in enumerate(headers) if h}
-    required=['ID_INMUEBLE','LATITUD','LONGITUD']
-    for key in required:
-        if key not in cols:raise SystemExit(f'Falta columna {key} en BASE_HUB')
-    result=[]
-    seen=set()
-    for excel_row,values in enumerate(rows,start=2):
-        if not any(v is not None and str(v).strip() for v in values):continue
-        code=str(values[cols['ID_INMUEBLE']] or '').strip()
-        # Sin identificador: mostrar referencia de fila, etiquetada explícitamente como tal.
-        if not code or code in ('-', '.') or ';' in code:
-            code=f'FILA-{excel_row}'
-        # No agrupar varias filas con el mismo identificador; asegurar unicidad de selección.
-        key=code if code not in seen else f'{code}-FILA-{excel_row}'
-        seen.add(key)
-        def coordinate(k,lo,hi):
-            value=values[cols[k]]
-            try:
-                n=float(str(value).strip().replace(',','.'))
-                return round(n,7) if math.isfinite(n) and lo<=n<=hi else None
-            except (TypeError,ValueError):return None
-        lat=coordinate('LATITUD',-90,90)
-        lon=coordinate('LONGITUD',-180,180)
-        # No usar (0,0) como coordenada fiable.
-        if lat==0 and lon==0:lat=lon=None
-        result.append({'codigo':key,'latitud':lat,'longitud':lon})
-    if not result:raise SystemExit('No hay registros; se conserva la versión anterior')
-    target=Path('data/inmuebles.json')
-    target.parent.mkdir(exist_ok=True,parents=True)
-    target.write_text(json.dumps({'inmuebles':result},ensure_ascii=False,separators=(',',':')),encoding='utf-8')
-    print('Fuente de mapa actualizada; no se publicaron direcciones, contratos, nombres ni datos financieros.')
+    required=('AZURE_CLIENT_ID','AZURE_TENANT_ID','ONEDRIVE_NEW_SHARE_URL','MAP_ID_SALT','OPENCAGE_API_KEY')
+    missing=[k for k in required if not os.getenv(k,'').strip()]
+    if missing:raise RuntimeError('Faltan variables/secretos: '+', '.join(missing))
+    raw=read_excel(token())
+    w=load_workbook(BytesIO(raw),read_only=True,data_only=True)
+    if 'Inventario' not in w.sheetnames:raise RuntimeError('Falta la hoja Inventario')
+    records=iter(w['Inventario'].values)
+    headers=[norm(x) for x in next(records)]
+    columns={h:i for i,h in enumerate(headers)}
+    for name in ['DIRECCION','CONTRATO_RADICADO','Activo fijo','LOCAL']:
+        if name not in columns:raise RuntimeError('Falta la columna '+name)
+    previous={}
+    if OUT.exists():
+        try:previous={row['codigo']:row for row in json.loads(OUT.read_text()).get('inmuebles',[])}
+        except (ValueError,KeyError,TypeError):pass
+    rows=[]; memo={}; total=0; unresolved=0; reused=0; calls=0
+    key=os.environ['OPENCAGE_API_KEY'].strip()
+    # Solo consultar direcciones nuevas; limitación adicional para respetar cuota del plan.
+    MAX_QUERIES= int(os.getenv('MAX_GEOCODE_PER_RUN','150'))
+    for row in records:
+        if not any(x is not None and norm(x) for x in row):continue
+        total+=1
+        ident=code(row,columns)
+        if not ident:continue
+        addr=address(row[columns['DIRECCION']])
+        if not addr:
+            rows.append({'codigo':ident,'latitud':None,'longitud':None})
+            unresolved+=1;continue
+        old=previous.get(ident,{})
+        if isinstance(old.get('latitud'),(int,float)) and isinstance(old.get('longitud'),(int,float)):
+            result=(old['latitud'],old['longitud']);reused+=1
+        elif addr.casefold() in memo:result=memo[addr.casefold()]
+        elif calls<MAX_QUERIES:
+            result=geocode(addr,key)
+            memo[addr.casefold()]=result;calls+=1
+            time.sleep(1.1)  # Limitar solicitudes, y no repetir la misma dirección en esta ejecución.
+        else:result=None
+        if result:
+            rows.append({'codigo':ident,'latitud':result[0],'longitud':result[1]})
+        else:
+            rows.append({'codigo':ident,'latitud':None,'longitud':None});unresolved+=1
+    if not rows:raise RuntimeError('Hoja Inventario vacía; se conserva el JSON anterior')
+    OUT.parent.mkdir(parents=True,exist_ok=True)
+    OUT.write_text(json.dumps({'inmuebles':rows},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
+    print(f'Registros: {len(rows)}; geocodificaciones consultadas: {calls}; reutilizadas: {reused}; sin ubicación: {unresolved}')
     summary=os.environ.get('GITHUB_STEP_SUMMARY')
     if summary:
         with open(summary,'a',encoding='utf-8') as f:
-            f.write('### Actualización de ubicación de inmuebles\n\nArchivo de datos mínimo generado correctamente. Sin indicadores públicos. Sin información contractual o personal.\n')
-
+            f.write(f'### Nueva base: Inventario (Consolidado.xlsx)\n\nRegistros procesados: {len(rows)}. Nuevas consultas: {calls}. Sin coordenadas: {unresolved}.\n\nNo se publicaron direcciones ni datos contractuales. Revisar precisión antes del uso operativo.\n')
 if __name__=='__main__':run()

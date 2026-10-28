@@ -3,7 +3,6 @@ name: Sincronizar inmuebles desde OneDrive
 on:
   workflow_dispatch:
   schedule:
-    # Primer dia del mes, 06:00 hora de Colombia (UTC-5)
     - cron: '0 11 1 * *'
 
 permissions:
@@ -16,39 +15,33 @@ concurrency:
 
 jobs:
   sincronizar:
-    name: Actualizar datos minimos del mapa
+    name: Geocodificar direcciones de Inventario
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
-      - name: Obtener codigo del repositorio
-        uses: actions/checkout@v4
-        with:
-          persist-credentials: true
-
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-
-      - name: Instalar lector de Excel
+      - name: Instalar dependencia de Excel
         run: python -m pip install 'openpyxl>=3.1,<4'
-
-      - name: Leer OneDrive y generar datos minimos
+      - name: Leer nueva base y geocodificar DIRECCION
         env:
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          ONEDRIVE_DRIVE_ID: ${{ vars.ONEDRIVE_DRIVE_ID }}
-          ONEDRIVE_FILE_ID: ${{ vars.ONEDRIVE_FILE_ID }}
+          ONEDRIVE_NEW_SHARE_URL: ${{ secrets.ONEDRIVE_NEW_SHARE_URL }}
+          MAP_ID_SALT: ${{ secrets.MAP_ID_SALT }}
+          OPENCAGE_API_KEY: ${{ secrets.OPENCAGE_API_KEY }}
+          MAX_GEOCODE_PER_RUN: '150'
         run: python scripts/sincronizar.py
-
-      - name: Publicar archivo JSON si cambio
+      - name: Publicar solo códigos y coordenadas
         run: |
           git add data/inmuebles.json
           if git diff --cached --quiet; then
-            echo "Sin cambios en el archivo del mapa."
+            echo "Sin cambios"
             exit 0
           fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git commit -m "Actualizar ubicaciones del visor desde OneDrive"
+          git commit -m "Actualizar mapa desde Inventario de OneDrive"
           git push origin HEAD:main

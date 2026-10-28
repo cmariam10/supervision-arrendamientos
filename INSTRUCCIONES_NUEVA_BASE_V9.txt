@@ -1,0 +1,20 @@
+CAMBIO A NUEVA BASE — V9
+
+Fuente: archivo compartido Consolidado.xlsx, hoja Inventario.
+Geocodificación: DIRECCION + Medellín, Antioquia, Colombia.
+No se reutilizan las coordenadas de la base anterior.
+
+CONFIGURACIÓN NECESARIA EN GITHUB (Settings > Secrets and variables > Actions > Secrets):
+1. ONEDRIVE_NEW_SHARE_URL: enlace compartido completo del nuevo Excel.
+2. MAP_ID_SALT: una cadena aleatoria larga generada por ti; conservarla para no cambiar los identificadores.
+3. OPENCAGE_API_KEY: clave de tu cuenta OpenCage (https://opencagedata.com/).
+
+Se conservan AZURE_CLIENT_ID y AZURE_TENANT_ID en Variables y la credencial GitHub OIDC.
+Permisos Microsoft Graph: la aplicación tiene que tener lectura explícitamente autorizada del NUEVO archivo, no basta con haber autorizado la base anterior. Si hay 403 hay que otorgar el rol read al archivo nuevo (Files.SelectedOperations.Selected).
+
+EJECUCIÓN: Actions > Sincronizar inmuebles desde OneDrive > Run workflow.
+La primera ejecución consultar hasta 150 direcciones distintas. Las restantes se quedan sin punto hasta su geocodificación. Sin dirección, sin punto.
+
+ATENCIÓN: el visor público solo recibirá códigos opacos y coordenadas. Ningún dato de contratos, personas, direcciones o finanzas se guarda en data/inmuebles.json. El autollenado de datos contractuales requiere un backend autenticado, que todavía no existe.
+
+Los resultados geocodificados son aproximados: valida su ubicación sobre el mapa antes de usarlos operativamente.
