@@ -1,0 +1,88 @@
+
+name: Sincronizar inmuebles desde OneDrive
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 11 1 * *"
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Comprobar conexion con Microsoft Graph
+        env:
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
+          ONEDRIVE_DRIVE_ID: ${{ vars.ONEDRIVE_DRIVE_ID }}
+          ONEDRIVE_FILE_ID: ${{ vars.ONEDRIVE_FILE_ID }}
+        run: |
+          python - <<'PY'
+          import os
+          import json
+          import urllib.parse
+          import urllib.request
+
+          def post(url, data):
+              request = urllib.request.Request(
+                  url,
+                  data=urllib.parse.urlencode(data).encode(),
+                  method="POST"
+              )
+              with urllib.request.urlopen(request) as response:
+                  return json.load(response)
+
+          oidc_url = os.environ["ACTIONS_ID_TOKEN_REQUEST_URL"]
+          oidc_url += "&audience=api%3A%2F%2FAzureADTokenExchange"
+
+          request = urllib.request.Request(
+              oidc_url,
+              headers={
+                  "Authorization": "Bearer " +
+                  os.environ["ACTIONS_ID_TOKEN_REQUEST_TOKEN"]
+              }
+          )
+
+          with urllib.request.urlopen(request) as response:
+              assertion = json.load(response)["value"]
+
+          tenant = os.environ["AZURE_TENANT_ID"]
+          client = os.environ["AZURE_CLIENT_ID"]
+
+          token = post(
+              f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
+              {
+                  "client_id": client,
+                  "scope": "https://graph.microsoft.com/.default",
+                  "grant_type": "client_credentials",
+                  "client_assertion_type":
+                    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer",
+                  "client_assertion": assertion
+              }
+          )["access_token"]
+
+          drive = os.environ["ONEDRIVE_DRIVE_ID"]
+          file_id = os.environ["ONEDRIVE_FILE_ID"]
+
+          url = (
+              f"https://graph.microsoft.com/v1.0/drives/{drive}"
+              f"/items/{file_id}?$select=id,name,size"
+          )
+
+          request = urllib.request.Request(
+              url,
+              headers={"Authorization": f"Bearer {token}"}
+          )
+
+          with urllib.request.urlopen(request) as response:
+              file = json.load(response)
+
+          print("Conexion correcta con OneDrive")
+          print("Archivo:", file["name"])
+          print("Tamano en bytes:", file["size"])
+          PY
