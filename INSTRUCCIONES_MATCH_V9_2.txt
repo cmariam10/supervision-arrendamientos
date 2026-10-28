@@ -1,0 +1,25 @@
+VERSIÓN 9.2 — ETIQUETAS Y CORRESPONDENCIA DE ENCUESTA
+
+Se publica únicamente: codigo opaco, denominacion comercial y latitud/longitud. El código opaco enlaza el punto con el registro que originó la sincronización, sin revelar números de contrato.
+
+Correspondencia de columnas del Excel Inventario -> formulario FO-ADMI-123
+Denominacion del activo fijo SAP -> denominacion (visible, solo descriptivo)
+CONTRATO_RADICADO -> contrato (PRIVADO, no se autocompleta sin backend autenticado)
+ARRENDATARIO_OCUPANTE -> arrendatario (PRIVADO)
+CEDULA -> documento de identidad (PRIVADO; no hay campo directo de encuesta)
+Activo fijo -> activo_fijo (identificador interno, no se publica)
+MATRICULA -> matricula (no se publica)
+DIRECCION -> direccion (geocodificada, no se publica el texto)
+SUPERVISOR -> supervisor (PRIVADO, no se publica)
+Fecha inico contrato_restitucion -> inicio (PRIVADO)
+Fecha finalizacion contrato -> fin (PRIVADO)
+CBML -> cbml (no se publica)
+Canon Mensual -> canon (PRIVADO)
+Objeto del contrato -> tecnico_objeto (PRIVADO; requiere revisión humana)
+No existen en Inventario: representante, nit, calificaciones, fotos, hallazgos, informe jurídico, evaluación de cumplimiento, períodos de informe. Deben diligenciarse.
+
+LIMITACIÓN: GitHub Pages es público. No permite leer y autocompletar de forma segura datos privados de la base sin autenticación y un servicio intermedio. No incorporar esos campos al JSON público ni al JavaScript.
+
+IMPORTANTE: previo a publicar, validar que la denominación del activo fijo SAP está autorizada para divulgación pública.
+
+ACTUALIZACIÓN: GitHub Desktop > Commit to main > Push origin; luego ejecutar Sincronizar inmuebles desde OneDrive y esperar que GitHub Pages publique data/inmuebles.json.

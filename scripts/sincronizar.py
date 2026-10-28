@@ -105,7 +105,7 @@ def run():
     records=iter(w['Inventario'].values)
     headers=[norm(x) for x in next(records)]
     columns={h:i for i,h in enumerate(headers)}
-    for name in ['DIRECCION','CONTRATO_RADICADO','Activo fijo','LOCAL']:
+    for name in ['DIRECCION','CONTRATO_RADICADO','Activo fijo','LOCAL','Denominacion del activo fijo SAP']:
         if name not in columns:raise RuntimeError('Falta la columna '+name)
     previous={}
     if OUT.exists():
@@ -120,9 +120,18 @@ def run():
         total+=1
         ident=code(row,columns)
         if not ident:continue
+        # La denominación comercial del inmueble se publica únicamente para identificarlo.
+        # NO se publica el registro contractual completo.
+        denominacion=norm(row[columns['Denominacion del activo fijo SAP']])
+        if not denominacion:
+            activo=norm(row[columns['Activo fijo']])
+            local=norm(row[columns['LOCAL']])
+            denominacion=('Activo fijo '+activo if activo else 'Inmueble')+((' · Local '+local) if local else '')
+        # Evitar valores extraños demasiado largos en la interfaz pública.
+        denominacion=denominacion[:140]
         addr=address(row[columns['DIRECCION']])
         if not addr:
-            rows.append({'codigo':ident,'latitud':None,'longitud':None})
+            rows.append({'codigo':ident,'denominacion':denominacion,'latitud':None,'longitud':None})
             unresolved+=1;continue
         old=previous.get(ident,{})
         if isinstance(old.get('latitud'),(int,float)) and isinstance(old.get('longitud'),(int,float)):
@@ -134,9 +143,9 @@ def run():
             time.sleep(1.1)  # Limitar solicitudes, y no repetir la misma dirección en esta ejecución.
         else:result=None
         if result:
-            rows.append({'codigo':ident,'latitud':result[0],'longitud':result[1]})
+            rows.append({'codigo':ident,'denominacion':denominacion,'latitud':result[0],'longitud':result[1]})
         else:
-            rows.append({'codigo':ident,'latitud':None,'longitud':None});unresolved+=1
+            rows.append({'codigo':ident,'denominacion':denominacion,'latitud':None,'longitud':None});unresolved+=1
     if not rows:raise RuntimeError('Hoja Inventario vacía; se conserva el JSON anterior')
     OUT.parent.mkdir(parents=True,exist_ok=True)
     OUT.write_text(json.dumps({'inmuebles':rows},ensure_ascii=False,separators=(',',':'))+'\n',encoding='utf-8')
