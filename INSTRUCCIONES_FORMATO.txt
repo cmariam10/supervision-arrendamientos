@@ -1,0 +1,1 @@
+Versión 8: Word generado sobre formato oficial FO-ADMI-123 V7 de 11 páginas. Conserva estructura y tablas; transfiere campos compatibles de la encuesta. Fotografías, tabla detallada de estados físicos y campos no contemplados por el formulario requieren diligenciamiento en Word. NO guarda en Registro.xlsx ni OneDrive. Publicar la carpeta plantillas junto con los otros archivos.
