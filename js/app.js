@@ -3,7 +3,7 @@ const fields=['codigo','direccion','matricula','cbml','activo_fijo','tipo','lati
 const $=id=>document.getElementById(id);
 const clean=v=>String(v??'').trim();
 const escapeHTML=v=>clean(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-let assets=[]; // El maestro no se conserva en localStorage: se consulta desde OneDrive.
+let assets=[]; // Los datos no se almacenan persistentemente; fuente opcional o importación local.
 let active=null;const map=L.map('map').setView([6.2442,-75.5812],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}).addTo(map);let markerLayer=L.featureGroup().addTo(map);
 function notify(msg){$('toast').textContent=msg;$('toast').hidden=false;setTimeout(()=>$('toast').hidden=true,4200)}
 function coords(x){if(x.latitud===''||x.longitud==='')return null;const lat=Number(x.latitud),lng=Number(x.longitud);return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180?[lat,lng]:null}
@@ -35,7 +35,7 @@ function normalize(o){
 function merge(rows){let inserted=0,updated=0,skipped=0;const indexes=new Map(assets.map((a,i)=>[a.codigo,i]));for(const r of rows){const x=normalize(r);if(!x.codigo){skipped++;continue}const idx=indexes.get(x.codigo);if(idx===undefined){indexes.set(x.codigo,assets.length);assets.push(x);inserted++}else{assets[idx]={...assets[idx],...Object.fromEntries(Object.entries(x).filter(([,v])=>v!==''))};updated++}}draw();notify(`Importación: ${inserted} nuevos, ${updated} actualizados, ${skipped} omitidos.`)}
 function loadInWorker(bytes){return new Promise((resolve,reject)=>{const worker=new Worker('js/excel-worker.js');worker.onmessage=e=>{worker.terminate();if(e.data.error)reject(new Error(e.data.error));else resolve(e.data.rows)};worker.onerror=e=>{worker.terminate();reject(new Error(e.message))};worker.postMessage(bytes,[bytes]);});}
 async function parseBook(blob){return loadInWorker(await blob.arrayBuffer())}
-$('search').oninput=draw;$('fit').onclick=()=>{if(markerLayer.getLayers().length)map.fitBounds(markerLayer.getBounds().pad(.2));else map.setView([6.2442,-75.5812],12)};$('new').onclick=()=>$('modal').showModal();$('close').onclick=()=>$('modal').close();$('property-form').onsubmit=e=>{e.preventDefault();const obj=Object.fromEntries(fields.map(f=>[f,clean(new FormData(e.target).get(f))]));if(assets.some(a=>a.codigo===obj.codigo)){notify('Ya existe un inmueble con ese código.');return}assets.push(obj);persist();$('modal').close();e.target.reset();$('search').value='';select(obj.codigo,true);notify('Inmueble registrado localmente.');};$('file').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;if(!window.XLSX){notify('No se pudo cargar el lector de Excel. Revisa tu conexión.');return}try{$('ms-status').textContent='Procesando el Excel en segundo plano…';const rows=await parseBook(file);merge(rows);$('ms-status').textContent='Excel local importado. No está sincronizado con OneDrive.'}catch(err){console.error(err);notify('No se pudo leer el Excel. Revisa el formato.')}finally{e.target.value=''}};$('download-template').onclick=()=>{if(!window.XLSX){notify('No se pudo cargar el generador Excel.');return}const ws=XLSX.utils.aoa_to_sheet([fields,['B-0001','Calle 00 # 00-00','', '', 'AF-0001','Local',6.2442,-75.5812]]);ws['!cols']=fields.map(x=>({wch:Math.max(x.length+4,19)}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Inmuebles');XLSX.writeFile(wb,'Plantilla_Inmuebles.xlsx')};draw();
+$('search').oninput=draw;$('fit').onclick=()=>{if(markerLayer.getLayers().length)map.fitBounds(markerLayer.getBounds().pad(.2));else map.setView([6.2442,-75.5812],12)};$('new').onclick=()=>$('modal').showModal();$('close').onclick=()=>$('modal').close();$('property-form').onsubmit=e=>{e.preventDefault();const obj=Object.fromEntries(fields.map(f=>[f,clean(new FormData(e.target).get(f))]));if(assets.some(a=>a.codigo===obj.codigo)){notify('Ya existe un inmueble con ese código.');return}assets.push(obj);persist();$('modal').close();e.target.reset();$('search').value='';select(obj.codigo,true);notify('Inmueble registrado localmente.');};$('file').onchange=async e=>{const file=e.target.files?.[0];if(!file)return;if(!window.XLSX){notify('No se pudo cargar el lector de Excel. Revisa tu conexión.');return}try{$('ms-status').textContent='Procesando el Excel en segundo plano…';const rows=await parseBook(file);merge(rows);$('ms-status').textContent='Excel importado únicamente en esta sesión del navegador. No se ha publicado ni sincronizado con OneDrive.'}catch(err){console.error(err);notify('No se pudo leer el Excel. Revisa el formato.')}finally{e.target.value=''}};$('download-template').onclick=()=>{if(!window.XLSX){notify('No se pudo cargar el generador Excel.');return}const ws=XLSX.utils.aoa_to_sheet([fields,['B-0001','Calle 00 # 00-00','', '', 'AF-0001','Local',6.2442,-75.5812]]);ws['!cols']=fields.map(x=>({wch:Math.max(x.length+4,19)}));const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Inmuebles');XLSX.writeFile(wb,'Plantilla_Inmuebles.xlsx')};draw();
 
 const reportDialog=$('report-modal'); let reportAsset=null;
 $('close-report').onclick=()=>reportDialog.close();
@@ -50,29 +50,19 @@ heading('4. INFORME FINANCIERO');line('Estado financiero',d.estado_financiero);f
 if(photos.length){heading('5.3 Registro fotográfico');for(let j=0;j<Math.min(photos.length,12);j++){const file=photos[j];if(!['image/png','image/jpeg'].includes(file.type))continue;const bytes=await file.arrayBuffer();const img=await createImageBitmap(file);const ratio=Math.min(1,440/img.width,330/img.height);const width=Math.max(1,Math.round(img.width*ratio)),height=Math.max(1,Math.round(img.height*ratio));img.close();line('Fotografía '+(j+1),file.name);parts.push(new Paragraph({children:[new ImageRun({data:new Uint8Array(bytes),transformation:{width,height},type:file.type==='image/png'?'png':'jpg'})],spacing:{after:180}}));}}heading('6. INFORME JURÍDICO');line(labels.juridico,d.juridico);heading('CIERRE');line('Supervisor',d.supervisor);line('Apoyo a la supervisión',d.apoyo);line('Secretaría',d.secretaria);add('La información debe revisarse y validarse por el supervisor antes de su firma.');
 const doc=new Document({sections:[{properties:{},children:parts}]});const blob=await Packer.toBlob(doc);const a=document.createElement('a');a.href=URL.createObjectURL(blob);const safe=k=>clean(k).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').slice(0,65);a.download=`Informe_${safe(d.numero_informe)}_${safe(d.codigo)}_${safe(d.supervisor)}.docx`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),30000);notify('Word generado y descargado. No se ha subido a OneDrive.');}catch(err){console.error(err);notify('No fue posible crear el Word. Comprueba la conexión y revisa la consola.')}};
 
-// LECTURA DE ONEDRIVE CON PERMISOS DELEGADOS — requiere inicio de sesión Microsoft.
-const GRAPH_SHARE_URL='https://mariampenar-my.sharepoint.com/:x:/g/personal/mariampena_mariampenar_onmicrosoft_com/IQCHswDLF8QUT5Ynq5I7EZdIAeYD8K2ujFURBStKglrceXA?e=9B9d2L';
-const CLIENT_ID='7b1e5997-24dd-45b3-a759-c0830a1e4720';
-const TENANT_ID='b3eacfd6-2fae-4231-8cc6-ad611b3240f1';
-const scopes=['Files.Read','User.Read'];
-let msClient=null;
-const msStatus=t=>{$('ms-status').textContent=t};
-const msReady=()=>!!(window.msal?.PublicClientApplication);
-async function initMS(){
- if(!msReady()){msStatus('No cargó la biblioteca Microsoft MSAL. Revisa la conexión.');return}
- try{msClient=new msal.PublicClientApplication({auth:{clientId:CLIENT_ID,authority:`https://login.microsoftonline.com/${TENANT_ID}`,redirectUri:'https://cmariam10.github.io/supervision-arrendamientos/'},cache:{cacheLocation:'sessionStorage'}});await msClient.initialize();const redirect=await msClient.handleRedirectPromise();const account=redirect?.account||msClient.getAllAccounts()[0];if(account)showAccount(account)}catch(e){console.error(e);msStatus('Error al iniciar Microsoft: '+e.message)}
+// Fuente opcional de datos PUBLICABLES. Nunca almacenes el Excel maestro privado aquí.
+// Esta ruta puede ser servida por un backend autorizado, si se configura más adelante.
+async function loadApprovedData(){
+  const status=$('ms-status');
+  try {
+    const response=await fetch('datos/inmuebles-publicables.json',{cache:'no-store'});
+    if(response.status===404){status.textContent='Sin fuente automática configurada. Puedes usar la importación local mientras se prepara la conexión segura con OneDrive.';return;}
+    if(!response.ok)throw new Error(`HTTP ${response.status}`);
+    const payload=await response.json();
+    const rows=Array.isArray(payload)?payload:payload.inmuebles;
+    if(!Array.isArray(rows))throw new Error('Formato JSON inválido');
+    assets=[];active=null;merge(rows);
+    status.textContent=`Se cargaron ${assets.length} inmuebles de la fuente configurada. Los datos aquí publicados son visibles para visitantes del sitio.`;
+  }catch(err){console.error(err);status.textContent='No se pudo cargar la fuente automática: '+err.message;}
 }
-function showAccount(acc){msClient.setActiveAccount(acc);$('load-ms').disabled=false;$('logout-ms').hidden=false;$('login-ms').textContent='Cambiar cuenta Microsoft';msStatus('Cuenta conectada: '+acc.username)}
-$('login-ms').onclick=async()=>{if(!msClient){msStatus('MSAL no está disponible.');return}try{const login=await msClient.loginPopup({scopes,prompt:'select_account'});showAccount(login.account);await loadMaster()}catch(e){console.error(e);msStatus('No se pudo iniciar sesión: '+e.message)}};
-$('logout-ms').onclick=async()=>{if(msClient)await msClient.logoutPopup({account:msClient.getActiveAccount(),postLogoutRedirectUri:location.href});};
-$('load-ms').onclick=loadMaster;
-function sharingId(url){const encoded=btoa(unescape(encodeURIComponent(url))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');return 'u!'+encoded}
-async function loadMaster(){
- try{const account=msClient?.getActiveAccount();if(!account)throw Error('Primero debes conectar tu cuenta Microsoft.');$('load-ms').disabled=true;msStatus('Consultando Excel maestro desde OneDrive…');let token;
- try{token=(await msClient.acquireTokenSilent({scopes,account})).accessToken}catch{token=(await msClient.acquireTokenPopup({scopes,account})).accessToken}
- const id=sharingId(GRAPH_SHARE_URL);const headers={Authorization:`Bearer ${token}`};
- const response=await fetch(`https://graph.microsoft.com/v1.0/shares/${id}/driveItem/content`,{headers});if(!response.ok)throw Error(`Microsoft Graph respondió ${response.status}: ${await response.text().then(t=>t.slice(0,180))}`);
- msStatus('Descargando Excel y procesando en segundo plano…');const rows=await parseBook(await response.blob());assets=[];active=null;merge(rows);msStatus(`Excel maestro cargado desde OneDrive: ${assets.length} inmuebles. Usa el buscador para localizar un bien.`);}
- catch(e){console.error(e);msStatus('Error de conexión: '+e.message+' Comprueba que tu cuenta tiene acceso al archivo y que el sitio está autorizado.')}finally{$('load-ms').disabled=!msClient?.getActiveAccount()}
-}
-initMS();
+loadApprovedData();
