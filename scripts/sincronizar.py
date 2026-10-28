@@ -1,7 +1,7 @@
 """Sincronización mínima para visor PÚBLICO: SOLO ID inmueble y coordenadas.
 No escribir nunca la base completa en el repositorio ni mostrar sus campos privados.
 """
-import json, os, urllib.parse, urllib.request, urllib.error
+import json, os, math, urllib.parse, urllib.request, urllib.error
 from io import BytesIO
 from pathlib import Path
 from openpyxl import load_workbook
@@ -62,7 +62,7 @@ def run():
             value=values[cols[k]]
             try:
                 n=float(str(value).strip().replace(',','.'))
-                return round(n,7) if lo<=n<=hi else None
+                return round(n,7) if math.isfinite(n) and lo<=n<=hi else None
             except (TypeError,ValueError):return None
         lat=coordinate('LATITUD',-90,90)
         lon=coordinate('LONGITUD',-180,180)
