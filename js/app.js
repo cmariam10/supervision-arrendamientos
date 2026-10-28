@@ -4,23 +4,42 @@ const $=id=>document.getElementById(id);
 const clean=v=>String(v??'').trim();
 const escapeHTML=v=>clean(v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 let assets=[]; // Base recibida únicamente desde el servicio central autorizado.
-let active=null;const map=L.map('map').setView([6.2442,-75.5812],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}).addTo(map);let markerLayer=L.featureGroup().addTo(map);
+let active=null;const map=L.map('map',{preferCanvas:true}).setView([6.2442,-75.5812],12);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'© OpenStreetMap contributors',maxZoom:19}).addTo(map);let markerLayer=L.featureGroup().addTo(map);
 function notify(msg){$('toast').textContent=msg;$('toast').hidden=false;setTimeout(()=>$('toast').hidden=true,4200)}
 function coords(x){if(x.latitud===''||x.longitud==='')return null;const lat=Number(x.latitud),lng=Number(x.longitud);return Number.isFinite(lat)&&Number.isFinite(lng)&&Math.abs(lat)<=90&&Math.abs(lng)<=180?[lat,lng]:null}
 function persist(){return true} // No almacenar datos institucionales en almacenamiento persistente del navegador.
+const canvasRenderer=L.canvas({padding:0.3});
 function draw(){
- const q=clean($('search').value).toLocaleLowerCase('es');const filtered=assets.filter(x=>[x.codigo,x.direccion,x.matricula,x.cbml,x.activo_fijo,x.tipo,x.contrato].some(y=>clean(y).toLocaleLowerCase('es').includes(q)));
- $('count').textContent=`${filtered.length} de ${assets.length} inmuebles`;$('list').replaceChildren();markerLayer.clearLayers();
- // Se limita la cantidad dibujada para mantener ágil el mapa y el buscador.
- for(const x of filtered.slice(0,160)){
- const b=document.createElement('button');b.className='item'+(x.codigo===active?' active':'');const name=document.createElement('strong');name.textContent=x.direccion||x.codigo;const sub=document.createElement('span');sub.textContent=`${x.codigo} · ${x.cbml||'CBML no registrado'}`;b.append(name,sub);b.onclick=()=>select(x.codigo,true);$('list').append(b);
- const c=coords(x);if(c){const marker=L.circleMarker(c,{radius:5,weight:1,color:'#105c53',fillOpacity:.65}).addTo(markerLayer);marker.bindPopup(`<strong>${escapeHTML(x.direccion)}</strong><br>${escapeHTML(x.codigo)}`);marker.on('click',()=>select(x.codigo,false));}}
- if(filtered.length>160){const m=document.createElement('p');m.className='hint';m.textContent=`Se muestran 160 de ${filtered.length} resultados. Escribe un código, dirección o CBML para acotar la búsqueda.`;$('list').append(m)}
+ const q=clean($('search').value).toLocaleLowerCase('es');
+ const filtered=assets.filter(x=>[x.codigo].some(y=>clean(y).toLocaleLowerCase('es').includes(q)));
+ $('list').replaceChildren();markerLayer.clearLayers();
+ // Todos los registros localizados se dibujan, usando renderizado Canvas.
+ for(const x of filtered){
+  const c=coords(x);
+  if(c){
+   const marker=L.circleMarker(c,{renderer:canvasRenderer,radius:4,weight:1,color:'#105c53',fillOpacity:.65});
+   marker.addTo(markerLayer);
+   marker.bindPopup(`<strong>${escapeHTML(x.codigo)}</strong>`);
+   marker.on('click',()=>select(x.codigo,false));
+  }
+ }
+ // La lista textual se acota para evitar miles de nodos DOM; el mapa NO se acota.
+ for(const x of filtered.slice(0,90)){
+  const b=document.createElement('button');b.className='item'+(x.codigo===active?' active':'');
+  const name=document.createElement('strong');name.textContent=x.codigo;
+  const sub=document.createElement('span');sub.textContent=coords(x)?'Seleccionar inmueble':'Ubicación pendiente';
+  b.append(name,sub);b.onclick=()=>select(x.codigo,true);$('list').append(b);
+ }
+ if(filtered.length>90){const m=document.createElement('p');m.className='hint';m.textContent='Escribe el identificador para encontrar el inmueble en la lista.';$('list').append(m)}
  if(!filtered.length)$('list').textContent='Sin resultados.';
- const selected=assets.find(x=>x.codigo===active);if(selected)showDetail(selected)
+ const selected=assets.find(x=>x.codigo===active);if(selected)showDetail(selected);
 }
-function select(code,fly){active=code;const x=assets.find(v=>v.codigo===code);if(!x)return;showDetail(x);draw();const c=coords(x);if(c&&fly)map.flyTo(c,16)}
-function showDetail(x){const arr=[['Código',x.codigo],['Dirección',x.direccion],['Matrícula inmobiliaria',x.matricula],['CBML',x.cbml],['Código activo fijo',x.activo_fijo],['Tipo',x.tipo],['Contrato',x.contrato],['Arrendatario',x.arrendatario],['Inicio contractual',x.inicio],['Fin contractual',x.fin],['Supervisor',x.supervisor],['Fuente de ubicación',x.origen_coordenada]];$('detail').innerHTML=`<h2>Ficha del inmueble</h2><div class="facts">${arr.map(([k,v])=>`<div class="fact"><span>${escapeHTML(k)}</span><b>${escapeHTML(v||'Sin dato')}</b></div>`).join('')}</div><button class="primary" id="start-report" type="button">Diligenciar informe y descargar Word</button><div class="notice">El formulario digital y la descarga de Word están disponibles. El registro central y OneDrive todavía no están conectados.</div>`; $('start-report').onclick=()=>openReport(x);}
+function select(code,fly){active=code;const x=assets.find(v=>v.codigo===code);if(!x)return;showDetail(x);const c=coords(x);if(c&&fly)map.flyTo(c,16);}
+function showDetail(x){
+ const arr=[['Identificador del inmueble',x.codigo],['Ubicación',coords(x)?'En el mapa':'Pendiente de georreferenciación']];
+ $('detail').innerHTML=`<h2>Ficha del inmueble</h2><div class="facts">${arr.map(([k,v])=>`<div class="fact"><span>${escapeHTML(k)}</span><b>${escapeHTML(v)}</b></div>`).join('')}</div><button class="primary" id="start-report" type="button">Diligenciar informe y descargar Word</button><div class="notice">Los datos contractuales deben diligenciarse y verificarse. El respaldo centralizado de encuestas y Word sigue pendiente.</div>`;
+ $('start-report').onclick=()=>openReport(x);
+}
 
 function normalize(o){
  const lower=Object.fromEntries(Object.entries(o).map(([k,v])=>[clean(k).toUpperCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[\s-]+/g,'_'),v]));
@@ -50,21 +69,21 @@ heading('4. INFORME FINANCIERO');line('Estado financiero',d.estado_financiero);f
 if(photos.length){heading('5.3 Registro fotográfico');for(let j=0;j<Math.min(photos.length,12);j++){const file=photos[j];if(!['image/png','image/jpeg'].includes(file.type))continue;const bytes=await file.arrayBuffer();const img=await createImageBitmap(file);const ratio=Math.min(1,440/img.width,330/img.height);const width=Math.max(1,Math.round(img.width*ratio)),height=Math.max(1,Math.round(img.height*ratio));img.close();line('Fotografía '+(j+1),file.name);parts.push(new Paragraph({children:[new ImageRun({data:new Uint8Array(bytes),transformation:{width,height},type:file.type==='image/png'?'png':'jpg'})],spacing:{after:180}}));}}heading('6. INFORME JURÍDICO');line(labels.juridico,d.juridico);heading('CIERRE');line('Supervisor',d.supervisor);line('Apoyo a la supervisión',d.apoyo);line('Secretaría',d.secretaria);add('La información debe revisarse y validarse por el supervisor antes de su firma.');
 const doc=new Document({sections:[{properties:{},children:parts}]});const blob=await Packer.toBlob(doc);const a=document.createElement('a');a.href=URL.createObjectURL(blob);const safe=k=>clean(k).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'_').slice(0,65);a.download=`Informe_${safe(d.numero_informe)}_${safe(d.codigo)}_${safe(d.supervisor)}.docx`;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),30000);notify('Word generado y descargado. No se ha subido a OneDrive.');}catch(err){console.error(err);notify('No fue posible crear el Word. Comprueba la conexión y revisa la consola.')}};
 
-// Endpoint de lectura autorizado. Nunca colocar credenciales Microsoft aquí.
-// Debe devolver {"inmuebles":[{"ID_INMUEBLE":"...", "LATITUD":6.2, "LONGITUD":-75.5, ...}]}.
- // Un backend privado sincroniza OneDrive -> respuesta de campos expresamente aprobados.
- async function loadApprovedData(){
-   const status=$('ms-status');
-   const endpoint=window.VISOR_DATA_API_URL;
-   if(!endpoint){status.textContent='Conexión pendiente: falta configurar el servicio seguro de lectura de OneDrive. No se publicará la base privada ni se solicitará importar Excel.';return;}
-   status.textContent='Actualizando inmuebles desde OneDrive…';
-   try{
-     const response=await fetch(endpoint,{cache:'no-store'});
-     if(!response.ok)throw new Error(`Servicio HTTP ${response.status}`);
-     const payload=await response.json();const rows=Array.isArray(payload)?payload:payload.inmuebles;
-     if(!Array.isArray(rows))throw new Error('Respuesta inválida del servicio');
-     assets=[];active=null;merge(rows);
-     status.textContent=`Fuente centralizada: ${assets.length} inmuebles cargados. Última consulta: ${new Date().toLocaleString('es-CO')}.`;
-   }catch(err){console.error(err);status.textContent=`No fue posible consultar el servicio de OneDrive: ${err.message}. Contacta al administrador.`;}
- }
- loadApprovedData();
+// Lectura automática de la copia mínima creada por GitHub Actions cada mes.
+// Los datos de data/inmuebles.json son PÚBLICOS: SOLO identificador y coordenadas.
+async function loadApprovedData(){
+ const status=$('ms-status');
+ const endpoint='https://raw.githubusercontent.com/cmariam10/supervision-arrendamientos/main/data/inmuebles.json';
+ status.textContent='Consultando ubicación de inmuebles…';
+ try{
+  const response=await fetch(endpoint+'?t='+Date.now(),{cache:'no-store'});
+  if(!response.ok)throw new Error(`HTTP ${response.status}`);
+  const payload=await response.json();
+  if(!Array.isArray(payload.inmuebles))throw new Error('Formato de datos inválido');
+  assets=payload.inmuebles.map(normalize).filter(x=>x.codigo);
+  active=null;
+  draw();
+  status.textContent='Ubicación cargada desde la base central. La sincronización está programada mensualmente.';
+ }catch(error){console.error(error);status.textContent='Todavía no está disponible la primera sincronización del mapa. Ejecuta la acción mensual en GitHub.';}
+}
+loadApprovedData();
