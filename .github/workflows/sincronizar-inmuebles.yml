@@ -3,108 +3,52 @@ name: Sincronizar inmuebles desde OneDrive
 on:
   workflow_dispatch:
   schedule:
-    # Primer día del mes, 06:00 hora de Colombia (UTC-5)
+    # Primer dia del mes, 06:00 hora de Colombia (UTC-5)
     - cron: '0 11 1 * *'
 
 permissions:
   id-token: write
-  contents: read
+  contents: write
+
+concurrency:
+  group: sincronizacion-inmuebles
+  cancel-in-progress: false
 
 jobs:
-  validar-base:
-    name: Validar base de OneDrive sin publicar datos
+  sincronizar:
+    name: Actualizar datos minimos del mapa
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - name: Preparar Python
+      - name: Obtener codigo del repositorio
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Configurar Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+
       - name: Instalar lector de Excel
         run: python -m pip install 'openpyxl>=3.1,<4'
-      - name: Validar conexion y generar resumen privado
+
+      - name: Leer OneDrive y generar datos minimos
         env:
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
           ONEDRIVE_DRIVE_ID: ${{ vars.ONEDRIVE_DRIVE_ID }}
           ONEDRIVE_FILE_ID: ${{ vars.ONEDRIVE_FILE_ID }}
+        run: python scripts/sincronizar.py
+
+      - name: Publicar archivo JSON si cambio
         run: |
-          python - <<'PY'
-          import os, sys, json, urllib.parse, urllib.request, urllib.error
-          from io import BytesIO
-          from openpyxl import load_workbook
-
-          def request_json(req, label):
-              try:
-                  with urllib.request.urlopen(req, timeout=90) as resp:
-                      return json.load(resp)
-              except urllib.error.HTTPError as err:
-                  print(f'{label}: HTTP {err.code}')
-                  try:
-                      payload = json.loads(err.read().decode())
-                      print('Error:', str(payload.get('error', ''))[:800])
-                  except Exception:
-                      print('La respuesta de error no fue JSON')
-                  raise SystemExit(1)
-
-          keys = ['AZURE_CLIENT_ID','AZURE_TENANT_ID','ONEDRIVE_DRIVE_ID','ONEDRIVE_FILE_ID']
-          missing = [key for key in keys if not os.environ.get(key, '').strip()]
-          if missing:
-              sys.exit('Faltan variables: ' + ', '.join(missing))
-
-          oidc_url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL']
-          oidc_url += ('&' if '?' in oidc_url else '?') + 'audience=' + urllib.parse.quote('api://AzureADTokenExchange', safe='')
-          assertion = request_json(urllib.request.Request(oidc_url, headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']}), 'GitHub OIDC')['value']
-          token_url = f"https://login.microsoftonline.com/{os.environ['AZURE_TENANT_ID']}/oauth2/v2.0/token"
-          form = {
-              'client_id':os.environ['AZURE_CLIENT_ID'],
-              'scope':'https://graph.microsoft.com/.default',
-              'grant_type':'client_credentials',
-              'client_assertion_type':'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-              'client_assertion':assertion
-          }
-          token = request_json(urllib.request.Request(token_url,data=urllib.parse.urlencode(form).encode(),headers={'Content-Type':'application/x-www-form-urlencoded'},method='POST'),'Microsoft Entra')['access_token']
-          drive = urllib.parse.quote(os.environ['ONEDRIVE_DRIVE_ID'], safe='')
-          item = urllib.parse.quote(os.environ['ONEDRIVE_FILE_ID'], safe='')
-          url = f'https://graph.microsoft.com/v1.0/drives/{drive}/items/{item}/content'
-          print('Descargando Excel para validacion en el ejecutor temporal...')
-          try:
-              with urllib.request.urlopen(urllib.request.Request(url,headers={'Authorization':'Bearer '+token}),timeout=120) as resp:
-                  content = resp.read()
-          except urllib.error.HTTPError as err:
-              print('Descarga OneDrive: HTTP',err.code)
-              raise SystemExit(1)
-          wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
-          if 'BASE_HUB' not in wb.sheetnames:
-              sys.exit('No existe la hoja BASE_HUB')
-          ws = wb['BASE_HUB']
-          it = ws.iter_rows(values_only=True)
-          headers = [str(c or '').strip().upper() for c in next(it)]
-          cols = {name:i for i,name in enumerate(headers) if name}
-          def lookup(row, key):
-              idx = cols.get(key)
-              return row[idx] if idx is not None and idx < len(row) else None
-          total, located = 0, 0
-          for row in it:
-              if not any(v is not None for v in row):
-                  continue
-              total += 1
-              try:
-                  lat, lon = float(lookup(row,'LATITUD')), float(lookup(row,'LONGITUD'))
-                  if -90 <= lat <= 90 and -180 <= lon <= 180:
-                      located += 1
-              except (TypeError, ValueError):
-                  pass
-          summary = [
-              '### Validacion mensual de BASE_HUB_AGRUPADA.xlsx',
-              '',
-              f'- Filas no vacias en BASE_HUB: **{total}**',
-              f'- Filas con coordenadas validas: **{located}**',
-              f'- Columnas encontradas: **{len(headers)}**',
-              '- Estado: **validado, sin publicar ni guardar registros**',
-              '- Proximo paso: definir los campos que pueden mostrarse en un visor publico.'
-          ]
-          print('\n'.join(summary))
-          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as f:
-              f.write('\n'.join(summary)+'\n')
-          PY
+          git add data/inmuebles.json
+          if git diff --cached --quiet; then
+            echo "Sin cambios en el archivo del mapa."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "Actualizar ubicaciones del visor desde OneDrive"
+          git push origin HEAD:main
