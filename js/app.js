@@ -68,7 +68,7 @@ try{
  let xml=await zip.file('word/document.xml').async('string');
  const formData={...d,periodo:`${d.desde||'No diligenciado'} al ${d.hasta||'No diligenciado'}`};
  const xmlEscape=t=>String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
- xml=xml.replace(/\{\{([a-z_]+)\}\}/g,(_,key)=>xmlEscape(clean(formData[key])||'PENDIENTE DE DILIGENCIAR'));
+ xml=xml.replace(/\{\{([a-z_]+)\}\}/g,(_,key)=>xmlEscape(clean(formData[key])||'Por diligenciar'));
  // The template retains original headers, tables, page layout and photo spaces.
  zip.file('word/document.xml',xml);
  const blob=await zip.generateAsync({type:'blob',mimeType:'application/vnd.openxmlformats-officedocument.wordprocessingml.document'});
