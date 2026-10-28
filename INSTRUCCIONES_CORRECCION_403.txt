@@ -1,0 +1,10 @@
+Corrección de acceso Microsoft Graph 403
+
+Se sustituye /shares/<id>/driveItem por una consulta directa GET /drives/{driveId}/items/{itemId} y /content.
+El permiso de lectura selectiva ya se concedió para Consolidado.xlsx.
+No requiere volver a conceder el permiso, ni crear otras claves.
+
+Copiar contenido en repositorio GitHub Desktop, Commit to main y Push origin; ejecutar workflow desde main.
+Si aparece 403 ahora en consulta directa, revisar que la concesión apunte exactamente al mismo ID y que la aplicación tenga el permiso Files.SelectedOperations.Selected de tipo Application con consentimiento concedido.
+
+Advertencia: el JSON resultante publica coordenadas. Antes de uso operativo verificar la precisión de geocodificación, así como la autorización institucional para publicar ubicaciones.

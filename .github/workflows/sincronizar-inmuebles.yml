@@ -29,7 +29,6 @@ jobs:
         env:
           AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
           AZURE_TENANT_ID: ${{ vars.AZURE_TENANT_ID }}
-          ONEDRIVE_NEW_SHARE_URL: ${{ secrets.ONEDRIVE_NEW_SHARE_URL }}
           MAP_ID_SALT: ${{ secrets.MAP_ID_SALT }}
           OPENCAGE_API_KEY: ${{ secrets.OPENCAGE_API_KEY }}
           MAX_GEOCODE_PER_RUN: '150'

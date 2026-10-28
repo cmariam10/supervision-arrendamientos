@@ -49,19 +49,17 @@ def token():
     return result['access_token']
 
 def read_excel(access_token):
-    # No publicar el enlace compartido: se configura como secreto en GitHub.
-    link=os.environ['ONEDRIVE_NEW_SHARE_URL'].strip()
-    share='u!'+base64.urlsafe_b64encode(link.encode('utf-8')).decode('ascii').rstrip('=')
-    headers={'Authorization':'Bearer '+access_token}
-    url=f'https://graph.microsoft.com/v1.0/shares/{share}/driveItem'
-    info=request(url,headers=headers)
-    if info.get('name','').lower().endswith('.xlsx') is False:
-        raise RuntimeError('El enlace no corresponde a un Excel XLSX')
-    reference=info.get('parentReference') or {}
-    drive,item=reference.get('driveId'),info.get('id')
-    if not drive or not item:raise RuntimeError('No se encontraron driveId/itemId del archivo nuevo')
-    target=f'https://graph.microsoft.com/v1.0/drives/{urllib.parse.quote(drive,safe="")}/items/{urllib.parse.quote(item,safe="")}/content'
-    return request(target,headers=headers,binary=True)
+    # Consultar exclusivamente el archivo autorizado mediante Files.SelectedOperations.Selected.
+    # Resolver /shares/... requiere acceso adicional y devolvía 403 con permisos selectivos.
+    drive = 'b!rN3lIXRiLEqBrnrpDsCpSL9C27sCaXNGgiWM2lm6aiGmKI-8whwHT4Po8BEHpXPF'
+    item = '01GCSG2KSPJBAPGNGOC5FIB3UGRH32MVHH'
+    headers = {'Authorization': 'Bearer ' + access_token}
+    base = f'https://graph.microsoft.com/v1.0/drives/{urllib.parse.quote(drive, safe="")}/items/{urllib.parse.quote(item, safe="")}'
+    # Verificar acceso y evitar cargar por error otro libro.
+    info = request(base + '?$select=id,name', headers=headers)
+    if info.get('name') != 'Consolidado.xlsx':
+        raise RuntimeError('El ID de OneDrive no corresponde a Consolidado.xlsx')
+    return request(base + '/content', headers=headers, binary=True)
 
 def norm(v):
     return re.sub(r'\s+',' ',str(v or '').strip())
@@ -98,7 +96,7 @@ def geocode(addr,key):
     return None
 
 def run():
-    required=('AZURE_CLIENT_ID','AZURE_TENANT_ID','ONEDRIVE_NEW_SHARE_URL','MAP_ID_SALT','OPENCAGE_API_KEY')
+    required=('AZURE_CLIENT_ID','AZURE_TENANT_ID','MAP_ID_SALT','OPENCAGE_API_KEY')
     missing=[k for k in required if not os.getenv(k,'').strip()]
     if missing:raise RuntimeError('Faltan variables/secretos: '+', '.join(missing))
     raw=read_excel(token())
