@@ -54,7 +54,7 @@ function normalize(o){
 function merge(rows){let inserted=0,updated=0,skipped=0;const indexes=new Map(assets.map((a,i)=>[a.codigo,i]));for(const r of rows){const x=normalize(r);if(!x.codigo){skipped++;continue}const idx=indexes.get(x.codigo);if(idx===undefined){indexes.set(x.codigo,assets.length);assets.push(x);inserted++}else{assets[idx]={...assets[idx],...Object.fromEntries(Object.entries(x).filter(([,v])=>v!==''))};updated++}}draw();notify(`Importación: ${inserted} nuevos, ${updated} actualizados, ${skipped} omitidos.`)}
 function loadInWorker(bytes){return new Promise((resolve,reject)=>{const worker=new Worker('js/excel-worker.js');worker.onmessage=e=>{worker.terminate();if(e.data.error)reject(new Error(e.data.error));else resolve(e.data.rows)};worker.onerror=e=>{worker.terminate();reject(new Error(e.message))};worker.postMessage(bytes,[bytes]);});}
 async function parseBook(blob){return loadInWorker(await blob.arrayBuffer())}
-$('search').oninput=draw;$('fit').onclick=()=>{if(markerLayer.getLayers().length)map.fitBounds(markerLayer.getBounds().pad(.2));else map.setView([6.2442,-75.5812],12)};draw();
+window.visorResizeMap=()=>map.invalidateSize();$('search').oninput=draw;$('fit').onclick=()=>{if(markerLayer.getLayers().length)map.fitBounds(markerLayer.getBounds().pad(.2));else map.setView([6.2442,-75.5812],12)};draw();
 
 const reportDialog=$('report-modal'); let reportAsset=null;
 $('close-report').onclick=()=>reportDialog.close();
@@ -138,20 +138,12 @@ async function openReport(asset){
  reportDialog.showModal();
  const status=$('private-base-status');
  status.textContent='Consultando datos contractuales autorizados…';
- const url=(window.PRIVATE_REPORT_API||'').trim();
- if(!url){status.textContent='Consulta privada pendiente de configuración. Los datos contractuales no se han precargado.';return;}
  try{
-   // El servidor debe autenticar y autorizar la consulta. No debe habilitar acceso anónimo.
-   const endpoint=url.replace(/\/$/,'')+'/inmuebles/'+encodeURIComponent(asset.codigo);
-   const bearer=window.privateAccessToken?await window.privateAccessToken():'';
-   if(!bearer)throw new Error('Inicia sesión con tu cuenta autorizada para consultar el contrato');
-   const response=await fetch(endpoint,{headers:{Authorization:'Bearer '+bearer},cache:'no-store'});
-   if(!response.ok)throw new Error('HTTP '+response.status);
-   const record=await response.json();
-   if(record.codigo!==asset.codigo)throw new Error('El inmueble no coincide con la ficha seleccionada');
+   const record=await window.visorAuth.getRecord(asset.codigo);
+   if(record.codigo!==asset.codigo)throw new Error('La fila no coincide con el inmueble seleccionado');
    setReportFields(f,record.datos||{});
-   status.textContent='Datos base cargados desde Inventario. Revisa la información antes de generar el Word.';
- }catch(err){status.textContent='No se pudo consultar la base privada ('+err.message+'). Los campos siguen editables.';}
+   status.textContent='Datos cargados desde Inventario. Verifica toda la información precargada.';
+ }catch(err){status.textContent='No se pudieron cargar los datos contractuales: '+err.message+'.';}
 }
 $('report-form').elements.canon.addEventListener('input',e=>{const el=$('report-form').elements.canon_letras;if(el)el.value=canonInWords(e.target.value)});
 

@@ -13,3 +13,10 @@ html,body{max-width:100%;overflow-x:hidden}#map{position:relative;overflow:hidde
 @media (max-width:800px){
   .property-list{min-height:420px;max-height:60vh;overflow-y:auto;}
 }
+
+/* V9.7: acceso por correo y contraseña */
+[hidden]{display:none!important}
+.login-screen{min-height:100vh;display:grid;place-items:center;padding:22px;background:#f1f4ef}
+.login-card{background:#fff;width:min(440px,100%);padding:30px;border-radius:16px;box-shadow:0 8px 32px #203e3a20}
+.login-card h1{font-size:24px;color:#163e40}.login-card p{margin:12px 0}.login-card #forgot-password{margin-top:8px}
+#logout{padding:5px 8px;margin-left:7px}
