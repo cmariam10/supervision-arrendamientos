@@ -114,7 +114,7 @@ async function openReport(asset){
  const status=$('private-base-status');
  status.textContent='Consultando datos contractuales autorizados…';
  const url=(window.PRIVATE_REPORT_API||'').trim();
- if(!url){status.textContent='Datos base pendientes: falta conectar la API privada. No se publicarán datos personales o contractuales en GitHub.';return;}
+ if(!url){status.textContent='Los datos contractuales aún no se han cargado: falta configurar la consulta privada. Puedes diligenciarlos manualmente y debes verificar toda información precargada.';return;}
  try{
    // El servidor debe autenticar y autorizar la consulta. No debe habilitar acceso anónimo.
    const endpoint=url.replace(/\/$/,'')+'/inmuebles/'+encodeURIComponent(asset.codigo);

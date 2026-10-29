@@ -4,3 +4,12 @@
 html,body{max-width:100%;overflow-x:hidden}#map{position:relative;overflow:hidden;isolation:isolate;width:100%;min-width:0}#map img.leaflet-tile{max-width:none!important;max-height:none!important} .leaflet-container{overflow:hidden!important}.leaflet-pane,.leaflet-map-pane,.leaflet-tile-pane,.leaflet-layer,.leaflet-marker-pane,.leaflet-shadow-pane{position:absolute;left:0;top:0}.leaflet-tile{position:absolute;left:0;top:0;width:256px;height:256px}.leaflet-container .leaflet-control-container{font-size:12px}#report-modal{width:min(920px,96vw);max-height:92vh;overflow-y:auto}#report-modal h3{font-size:16px;margin:24px 0 10px;border-bottom:1px solid #dce7e0;padding-bottom:7px}textarea,select{width:100%;border:1px solid #cedad4;border-radius:8px;padding:10px 12px;font:inherit;font-size:14px}textarea{resize:vertical}input[readonly]{background:#f1f5f3}
 
 .sr-only{position:absolute!important;width:1px!important;height:1px!important;padding:0!important;margin:-1px!important;overflow:hidden!important;clip:rect(0,0,0,0)!important;white-space:nowrap!important;border:0!important}
+
+/* V9.5: el listado llega a la parte baja de la ventana y mantiene scroll interno */
+@media (min-width:801px){
+  aside > .panel:first-child{min-height:calc(100vh - 190px);display:flex;flex-direction:column;}
+  aside > .panel:first-child .property-list{flex:1;min-height:340px;max-height:none;overflow-y:auto;overscroll-behavior:contain;}
+}
+@media (max-width:800px){
+  .property-list{min-height:420px;max-height:60vh;overflow-y:auto;}
+}

@@ -1,0 +1,1 @@
+Versión 9.5: listado de inmuebles ampliado hasta la parte inferior de la ventana, dirección editable mientras no exista API privada, aviso del formulario más claro. El autollenado contractual NO funciona sin implementar y configurar un backend privado autenticado. No publicar Consolidado.xlsx ni sus columnas personales/contractuales en GitHub Pages.
