@@ -65,8 +65,11 @@ function isoDate(value){
   const s=String(value).trim();
   const ymd=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(ymd)return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
-  const dmy=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
-  return dmy?`${dmy[3]}-${dmy[2]}-${dmy[1]}`:'';
+  const dmy=s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if(dmy)return `${dmy[3]}-${dmy[2].padStart(2,'0')}-${dmy[1].padStart(2,'0')}`;
+  // Fechas numéricas recibidas de Excel (sistema 1900).
+  if(/^\d{5}(?:\.0+)?$/.test(s)){const dt=new Date(Date.UTC(1899,11,30)+Math.floor(Number(s))*86400000);return dt.toISOString().slice(0,10);}
+  return ''; 
 }
 function spanishNumber(n){
   n=Math.floor(Number(n));
@@ -96,11 +99,33 @@ function canonInWords(value){
  const pesos=Math.floor(n),centavos=Math.round((n-pesos)*100);
  return (spanishNumber(pesos)+(pesos===1?' peso':' pesos')+(centavos?' con '+String(centavos).padStart(2,'0')+'/100':'')+' moneda corriente').toUpperCase();
 }
+function normalizedKey(k){return String(k).normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9]/g,'').toLowerCase()}
+function excelValue(record,name){
+  if(Object.hasOwn(record,name))return record[name];
+  const key=normalizedKey(name);
+  const found=Object.entries(record).find(([k])=>normalizedKey(k)===key);
+  return found?.[1];
+}
+function parseCop(value){
+  if(typeof value==='number')return value;
+  let s=String(value??'').replace(/[^0-9,.-]/g,'');
+  if(!s)return NaN;
+  if(s.includes(','))s=s.replace(/\./g,'').replace(',','.');
+  return Number(s);
+}
 function setReportFields(f,rec){
   const pairs={contrato:'CONTRATO_RADICADO',desde:'Fecha inico contrato_restitucion',hasta:'Fecha finalizacion contrato',direccion:'DIRECCION',matricula:'MATRICULA',activo_fijo:'Activo fijo',cbml:'CBML',arrendatario:'ARRENDATARIO_OCUPANTE',nit:'CEDULA',inicio:'Fecha inico contrato_restitucion',fin:'Fecha finalizacion contrato',canon:'Canon Mensual',denominacion:'Denominacion del activo fijo SAP',supervisor:'SUPERVISOR'};
   for(const [field,col] of Object.entries(pairs)){
-    const el=f.elements[field];if(!el||rec[col]===undefined||rec[col]===null)continue;
-    const value=['desde','hasta','inicio','fin'].includes(field)?isoDate(rec[col]):String(rec[col]).trim();
+    const el=f.elements[field], raw=excelValue(rec,col);
+    if(!el||raw===undefined||raw===null||String(raw).trim()==='')continue;
+    let value=['desde','hasta','inicio','fin'].includes(field)?isoDate(raw):String(raw).trim();
+    if(field==='canon'){const amount=parseCop(raw);value=Number.isFinite(amount)?String(amount):'';}
+    if(field==='supervisor'&&el.tagName==='SELECT'){
+      const match=[...el.options].find(o=>normalizedKey(o.value)===normalizedKey(value));
+      if(match){el.value=match.value;continue;}
+      // No sustituir un nombre por otro parecido; se solicita verificación.
+      continue;
+    }
     if(value)el.value=value;
   }
   if(f.elements.canon_letras)f.elements.canon_letras.value=canonInWords(f.elements.canon.value);
@@ -114,11 +139,13 @@ async function openReport(asset){
  const status=$('private-base-status');
  status.textContent='Consultando datos contractuales autorizados…';
  const url=(window.PRIVATE_REPORT_API||'').trim();
- if(!url){status.textContent='Los datos contractuales aún no se han cargado: falta configurar la consulta privada. Puedes diligenciarlos manualmente y debes verificar toda información precargada.';return;}
+ if(!url){status.textContent='Consulta privada pendiente de configuración. Los datos contractuales no se han precargado.';return;}
  try{
    // El servidor debe autenticar y autorizar la consulta. No debe habilitar acceso anónimo.
    const endpoint=url.replace(/\/$/,'')+'/inmuebles/'+encodeURIComponent(asset.codigo);
-   const response=await fetch(endpoint,{credentials:'include',cache:'no-store'});
+   const bearer=window.privateAccessToken?await window.privateAccessToken():'';
+   if(!bearer)throw new Error('Inicia sesión con tu cuenta autorizada para consultar el contrato');
+   const response=await fetch(endpoint,{headers:{Authorization:'Bearer '+bearer},cache:'no-store'});
    if(!response.ok)throw new Error('HTTP '+response.status);
    const record=await response.json();
    if(record.codigo!==asset.codigo)throw new Error('El inmueble no coincide con la ficha seleccionada');
