@@ -37,7 +37,7 @@ function draw(){
 function select(code,fly){active=code;const x=assets.find(v=>v.codigo===code);if(!x)return;showDetail(x);const c=coords(x);if(c&&fly)map.flyTo(c,16);}
 function showDetail(x){
  const arr=[['Denominación del activo fijo SAP',x.denominacion||'Sin denominación'],['Referencia del inmueble',x.codigo],['Ubicación',coords(x)?'En el mapa':'Pendiente de georreferenciación']];
- $('detail').innerHTML=`<h2>Ficha del inmueble</h2><div class="facts">${arr.map(([k,v])=>`<div class="fact"><span>${escapeHTML(k)}</span><b>${escapeHTML(v)}</b></div>`).join('')}</div><button class="primary" id="start-report" type="button">Diligenciar informe y descargar Word</button><div class="notice">Los datos contractuales deben diligenciarse y verificarse. El respaldo centralizado de encuestas y Word sigue pendiente.</div>`;
+ $('detail').innerHTML=`<h2>Ficha del inmueble</h2><div class="facts">${arr.map(([k,v])=>`<div class="fact"><span>${escapeHTML(k)}</span><b>${escapeHTML(v)}</b></div>`).join('')}</div><button class="primary" id="start-report" type="button">Diligenciar informe y descargar Word</button><div class="notice">Los datos contractuales deben diligenciarse y verificarse. Toda la información precargada debe ser verificada.</div>`;
  $('start-report').onclick=()=>openReport(x);
 }
 
