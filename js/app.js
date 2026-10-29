@@ -58,7 +58,76 @@ $('search').oninput=draw;$('fit').onclick=()=>{if(markerLayer.getLayers().length
 
 const reportDialog=$('report-modal'); let reportAsset=null;
 $('close-report').onclick=()=>reportDialog.close();
-function openReport(asset){reportAsset=asset;const f=$('report-form');f.reset();for(const k of ['codigo','direccion','matricula','activo_fijo','cbml','arrendatario','contrato','inicio','fin']) if(f.elements[k])f.elements[k].value=asset[k]||'';if(f.elements.denominacion)f.elements.denominacion.value=asset.denominacion||'';f.elements.fecha_informe.value=new Date().toISOString().slice(0,10);if(['CLARA LUCÍA GIL BUSTAMANTE','MARÍA NELLY MORENO MORENO','JÁDER DARÍO VILLEGAS CARDONA'].includes(asset.supervisor))f.elements.supervisor.value=asset.supervisor;reportDialog.showModal();}
+// La ficha pública solo contiene nombre y coordenadas. Los campos personales y
+// contractuales se consultan exclusivamente en una API privada autenticada.
+function isoDate(value){
+  if(!value)return '';
+  const s=String(value).trim();
+  const ymd=s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(ymd)return `${ymd[1]}-${ymd[2]}-${ymd[3]}`;
+  const dmy=s.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+  return dmy?`${dmy[3]}-${dmy[2]}-${dmy[1]}`:'';
+}
+function spanishNumber(n){
+  n=Math.floor(Number(n));
+  if(!Number.isFinite(n)||n<0||n>=1e12)return '';
+  if(n===0)return 'cero';
+  const u=['','uno','dos','tres','cuatro','cinco','seis','siete','ocho','nueve'];
+  const t=['','','veinte','treinta','cuarenta','cincuenta','sesenta','setenta','ochenta','noventa'];
+  const c=['','ciento','doscientos','trescientos','cuatrocientos','quinientos','seiscientos','setecientos','ochocientos','novecientos'];
+  function group(x){
+    if(x===100)return 'cien';
+    if(x<10)return u[x];
+    if(x<20)return ['diez','once','doce','trece','catorce','quince','dieciséis','diecisiete','dieciocho','diecinueve'][x-10];
+    if(x<30)return ['veinte','veintiuno','veintidós','veintitrés','veinticuatro','veinticinco','veintiséis','veintisiete','veintiocho','veintinueve'][x-20];
+    if(x<100)return t[Math.floor(x/10)]+(x%10?' y '+u[x%10]:'');
+    return c[Math.floor(x/100)]+(x%100?' '+group(x%100):'');
+  }
+  function apocope(z){return z.replace(/veintiuno$/,'veintiún').replace(/ y uno$/,' y un').replace(/ uno$/,' un').replace(/^uno$/,'un');}
+  const parts=[];
+  const milmill=Math.floor(n/1e9);if(milmill)parts.push((milmill===1?'mil':apocope(group(milmill))+' mil')+' millones');
+  n%=1e9;const millions=Math.floor(n/1e6);if(millions)parts.push((millions===1?'un millón':apocope(group(millions))+' millones'));
+  n%=1e6;const th=Math.floor(n/1000);if(th)parts.push(th===1?'mil':apocope(group(th))+' mil');
+  n%=1000;if(n)parts.push(group(n));
+  return parts.join(' ');
+}
+function canonInWords(value){
+ const n=Number(value);if(!Number.isFinite(n)||n<0||!String(value).trim())return '';
+ const pesos=Math.floor(n),centavos=Math.round((n-pesos)*100);
+ return (spanishNumber(pesos)+(pesos===1?' peso':' pesos')+(centavos?' con '+String(centavos).padStart(2,'0')+'/100':'')+' moneda corriente').toUpperCase();
+}
+function setReportFields(f,rec){
+  const pairs={contrato:'CONTRATO_RADICADO',desde:'Fecha inico contrato_restitucion',hasta:'Fecha finalizacion contrato',direccion:'DIRECCION',matricula:'MATRICULA',activo_fijo:'Activo fijo',cbml:'CBML',arrendatario:'ARRENDATARIO_OCUPANTE',nit:'CEDULA',inicio:'Fecha inico contrato_restitucion',fin:'Fecha finalizacion contrato',canon:'Canon Mensual',denominacion:'Denominacion del activo fijo SAP',supervisor:'SUPERVISOR'};
+  for(const [field,col] of Object.entries(pairs)){
+    const el=f.elements[field];if(!el||rec[col]===undefined||rec[col]===null)continue;
+    const value=['desde','hasta','inicio','fin'].includes(field)?isoDate(rec[col]):String(rec[col]).trim();
+    if(value)el.value=value;
+  }
+  if(f.elements.canon_letras)f.elements.canon_letras.value=canonInWords(f.elements.canon.value);
+}
+async function openReport(asset){
+ reportAsset=asset;const f=$('report-form');f.reset();
+ f.elements.codigo.value=asset.codigo;
+ if(f.elements.denominacion)f.elements.denominacion.value=asset.denominacion||'';
+ f.elements.fecha_informe.value=new Date().toISOString().slice(0,10);
+ reportDialog.showModal();
+ const status=$('private-base-status');
+ status.textContent='Consultando datos contractuales autorizados…';
+ const url=(window.PRIVATE_REPORT_API||'').trim();
+ if(!url){status.textContent='Datos base pendientes: falta conectar la API privada. No se publicarán datos personales o contractuales en GitHub.';return;}
+ try{
+   // El servidor debe autenticar y autorizar la consulta. No debe habilitar acceso anónimo.
+   const endpoint=url.replace(/\/$/,'')+'/inmuebles/'+encodeURIComponent(asset.codigo);
+   const response=await fetch(endpoint,{credentials:'include',cache:'no-store'});
+   if(!response.ok)throw new Error('HTTP '+response.status);
+   const record=await response.json();
+   if(record.codigo!==asset.codigo)throw new Error('El inmueble no coincide con la ficha seleccionada');
+   setReportFields(f,record.datos||{});
+   status.textContent='Datos base cargados desde Inventario. Revisa la información antes de generar el Word.';
+ }catch(err){status.textContent='No se pudo consultar la base privada ('+err.message+'). Los campos siguen editables.';}
+}
+$('report-form').elements.canon.addEventListener('input',e=>{const el=$('report-form').elements.canon_letras;if(el)el.value=canonInWords(e.target.value)});
+
 const labels={tecnico_objeto:'2.1 Cumplimiento del objeto y alcance',tecnico_obligaciones:'2.2 Cumplimiento de obligaciones',tecnico_otros:'2.3 Otros aspectos técnicos',subcontratacion:'3.1 Subcontratación',modificaciones:'3.2 Modificaciones del contrato',admin_otros:'3.4 Otros aspectos administrativos',avance_financiero:'4.1–4.3 Avance y estado financiero',incumplimientos:'4.4 Acciones por incumplimientos',hallazgos:'5.2 Resultados de inspección física',juridico:'6. Informe jurídico'};
 $('report-form').onsubmit=async(e)=>{e.preventDefault();const form=e.target;const d=Object.fromEntries(new FormData(form).entries());const physical=['estructura','cerramiento','acabados','banos','cocina','servicios'];if(physical.some(k=>['Regular','Malo'].includes(d[k]))&&!clean(d.hallazgos)){notify('Describe los hallazgos de los elementos en estado Regular o Malo.');return}const photos=[...form.elements.fotos.files];if(physical.some(k=>['Regular','Malo'].includes(d[k]))&&!photos.length){notify('Adjunta al menos una fotografía de los hallazgos Regular o Malo.');return}if(!window.JSZip){notify('No se cargó la biblioteca para completar la plantilla Word.');return}
 try{
@@ -66,7 +135,7 @@ try{
  if(!template.ok)throw new Error('No se encontró la plantilla FO-ADMI-123');
  const zip=await JSZip.loadAsync(await template.arrayBuffer());
  let xml=await zip.file('word/document.xml').async('string');
- const formData={...d,periodo:`${d.desde||'No diligenciado'} al ${d.hasta||'No diligenciado'}`};
+ const formData={...d,canon_letras:canonInWords(d.canon),periodo:`${d.desde||'No diligenciado'} al ${d.hasta||'No diligenciado'}`};
  const xmlEscape=t=>String(t??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&apos;');
  xml=xml.replace(/\{\{([a-z_]+)\}\}/g,(_,key)=>xmlEscape(clean(formData[key])||'Por diligenciar'));
  // The template retains original headers, tables, page layout and photo spaces.

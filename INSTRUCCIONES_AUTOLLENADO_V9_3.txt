@@ -1,0 +1,7 @@
+V9.3 - Campos contractuales privados
+
+El formulario reconoce las columnas de Consolidado.xlsx (Inventario), convierte fechas yyyy-mm-dd y convierte el canon a letras.
+NO CARGA información personal/contractual al repositorio público. Para activar autollenado se debe conectar window.PRIVATE_REPORT_API a un servicio privado autenticado que devuelva {"codigo":"INM-...","datos": {"CONTRATO_RADICADO": "...", "DIRECCION":"...", ...}}.
+El servidor debe consultar OneDrive con Microsoft Graph, identificar cada registro usando el mismo hash MAP_ID_SALT y validar el acceso del supervisor al inmueble.
+No implementar una API anónima ni incorporar tokens a JavaScript del visor.
+El selector conserva edición manual hasta completar la integración privada.
